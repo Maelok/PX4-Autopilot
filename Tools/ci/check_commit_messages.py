@@ -4,6 +4,8 @@
 Reads a JSON array of GitHub commit objects from stdin (as returned by the
 GitHub API's /pulls/{n}/commits endpoint) and checks each message for
 blocking errors and advisory warnings.
+
+With --markdown, outputs a formatted PR comment body instead of plain text.
 """
 
 import json
@@ -78,7 +80,7 @@ def check_commit(message: str) -> tuple[list[str], list[str]]:
 
     for pattern in REVIEW_RESPONSE_PATTERNS:
         if pattern in lower:
-            warnings.append(f'Review-response commit: consider squashing before merge')
+            warnings.append('Review-response commit: consider squashing before merge')
             break
 
     for pattern in FORMATTER_PATTERNS:
@@ -94,17 +96,32 @@ def check_commit(message: str) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
-def main() -> None:
-    try:
-        data = json.load(sys.stdin)
-    except json.JSONDecodeError as exc:
-        print(f"Failed to parse JSON input: {exc}", file=sys.stderr)
-        sys.exit(2)
+def suggest_commit(message: str) -> str | None:
+    """Suggest how to fix a bad commit message."""
+    first_line = message.split('\n', 1)[0].strip()
+    lower = first_line.lower()
 
-    if not isinstance(data, list):
-        print("Expected a JSON array of commit objects.", file=sys.stderr)
-        sys.exit(2)
+    # fixup/squash/amend -> suggest squashing
+    for prefix in FIXUP_PREFIXES:
+        if lower.startswith(prefix):
+            return 'Squash this into the commit it fixes'
 
+    # WIP
+    if lower == 'wip' or lower.startswith('wip ') or lower.startswith('wip:'):
+        return 'Squash into parent or reword with a descriptive message'
+
+    # Too short or throwaway
+    if len(first_line) < MIN_MESSAGE_LENGTH:
+        return 'Reword with a descriptive message (e.g. "subsystem: what changed")'
+
+    if first_line.strip().lower() in THROWAWAY_WORDS:
+        return 'Reword with a descriptive message (e.g. "subsystem: what changed")'
+
+    return None
+
+
+def format_plain(data: list) -> tuple[bool, bool]:
+    """Print plain text output. Returns (has_blocking, has_warnings)."""
     has_blocking = False
     has_warnings = False
 
@@ -142,16 +159,145 @@ def main() -> None:
             "  git rebase -i HEAD~N        # replace N with the number of commits\n"
             "  git push --force-with-lease  # update the PR branch\n",
         )
-        sys.exit(1)
 
-    if has_warnings:
+    elif has_warnings:
         print(
             "\nWarnings above are advisory. Consider squashing cleanup commits\n"
             "(review responses, formatting fixes) into their parent commits\n"
             "before merge so that main stays clean.",
         )
 
-    sys.exit(0)
+    return has_blocking, has_warnings
+
+
+def format_markdown_blocking(data: list) -> str:
+    """Format a blocking error markdown comment."""
+    lines = [
+        "## Commit Messages",
+        "",
+        "Some commits in this PR have messages that **must be fixed before merging**.",
+        "",
+        "Every commit that lands on `main` becomes permanent project history. "
+        "Each commit message should use the `subsystem: description` format and "
+        "clearly describe what changed.",
+        "",
+        "| Commit | Message | Issue | Suggested fix |",
+        "|--------|---------|-------|---------------|",
+    ]
+
+    for commit in data:
+        sha = commit.get('sha', '?')[:10]
+        message = commit.get('commit', {}).get('message', '')
+        first_line = message.split('\n', 1)[0].strip()
+
+        errors, _ = check_commit(message)
+        if not errors:
+            continue
+
+        issues = '; '.join(errors)
+        suggestion = suggest_commit(message) or ''
+        # Escape pipes in the message for markdown table
+        safe_msg = first_line.replace('|', '\\|')
+        lines.append(f"| `{sha}` | {safe_msg} | {issues} | {suggestion} |")
+
+    lines.extend([
+        "",
+        "**How to fix:**",
+        "",
+        "If you have a single meaningful commit buried under fixup/review commits, "
+        "squash them all into one:",
+        "```bash",
+        "git rebase -i HEAD~N   # replace N with the number of commits in this PR",
+        "# mark all commits except the first as 'squash' or 'fixup'",
+        "# reword the remaining commit to follow the format",
+        "git push --force-with-lease",
+        "```",
+        "",
+        "If each commit is a separate logical change, reword the bad ones:",
+        "```bash",
+        "git rebase -i HEAD~N   # replace N with the number of commits",
+        "# mark the bad commits as 'reword'",
+        "# write a proper message: subsystem: what this commit does",
+        "git push --force-with-lease",
+        "```",
+    ])
+
+    return '\n'.join(lines)
+
+
+def format_markdown_advisory(data: list) -> str:
+    """Format an advisory warning markdown comment."""
+    lines = [
+        "## Commit Messages (advisory)",
+        "",
+        "This is **not blocking**, but we noticed some commit messages that could be improved.",
+        "",
+        "| Commit | Message | Suggestion |",
+        "|--------|---------|------------|",
+    ]
+
+    for commit in data:
+        sha = commit.get('sha', '?')[:10]
+        message = commit.get('commit', {}).get('message', '')
+        first_line = message.split('\n', 1)[0].strip()
+
+        _, warnings = check_commit(message)
+        if not warnings:
+            continue
+
+        suggestion = '; '.join(warnings)
+        safe_msg = first_line.replace('|', '\\|')
+        lines.append(f"| `{sha}` | {safe_msg} | {suggestion} |")
+
+    lines.extend([
+        "",
+        "**Why this matters:** every commit on `main` is permanent project history. "
+        "Clean, prefixed messages (`subsystem: description`) make `git log`, "
+        "`git blame`, and release notes much more useful.",
+        "",
+        "Consider squashing review-response commits (\"address review\", \"apply suggestions\") "
+        "and formatting commits (\"make format\") into their parent commit before merge.",
+    ])
+
+    return '\n'.join(lines)
+
+
+def main() -> None:
+    markdown = '--markdown' in sys.argv
+
+    try:
+        data = json.load(sys.stdin)
+    except json.JSONDecodeError as exc:
+        print(f"Failed to parse JSON input: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    if not isinstance(data, list):
+        print("Expected a JSON array of commit objects.", file=sys.stderr)
+        sys.exit(2)
+
+    if markdown:
+        # Check all commits to determine result type
+        has_blocking = False
+        has_warnings = False
+        for commit in data:
+            message = commit.get('commit', {}).get('message', '')
+            errors, warnings = check_commit(message)
+            if errors:
+                has_blocking = True
+            if warnings:
+                has_warnings = True
+
+        if has_blocking:
+            print(format_markdown_blocking(data))
+            sys.exit(1)
+        elif has_warnings:
+            print(format_markdown_advisory(data))
+            sys.exit(0)
+        # All clean: no output, exit 0
+        sys.exit(0)
+    else:
+        has_blocking, _ = format_plain(data)
+        sys.exit(1 if has_blocking else 0)
 
 
 if __name__ == '__main__':

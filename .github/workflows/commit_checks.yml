@@ -30,13 +30,7 @@ jobs:
       - name: Check PR title
         id: check
         run: |
-          output=$(python3 Tools/ci/check_pr_title.py "${{ github.event.pull_request.title }}" 2>&1) && rc=0 || rc=$?
-          echo "$output"
-          {
-            echo "output<<COMMIT_CHECK_EOF"
-            echo "$output"
-            echo "COMMIT_CHECK_EOF"
-          } >> "$GITHUB_OUTPUT"
+          python3 Tools/ci/check_pr_title.py "${{ github.event.pull_request.title }}" --markdown > comment.md && rc=0 || rc=$?
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
 
       - name: Post or clear comment
@@ -44,17 +38,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ steps.check.outputs.exit_code }}" != "0" ]; then
-            printf '%s\n' \
-              "## PR Title" \
-              "" \
-              "The PR title does not follow the required format." \
-              "" \
-              '```' \
-              "${{ steps.check.outputs.output }}" \
-              '```' \
-              "" \
-              "Please update your PR title to use the \`subsystem: description\` format." \
-            | python3 Tools/ci/pr_comment.py --marker pr-title --pr "$PR_NUMBER" --result fail
+            python3 Tools/ci/pr_comment.py --marker pr-title --pr "$PR_NUMBER" --result fail < comment.md
           else
             python3 Tools/ci/pr_comment.py --marker pr-title --pr "$PR_NUMBER" --result pass
           fi
@@ -79,50 +63,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          output=$(gh api \
+          gh api \
             "repos/${{ github.repository }}/pulls/${PR_NUMBER}/commits?per_page=100" \
-            | python3 Tools/ci/check_commit_messages.py 2>&1) && rc=0 || rc=$?
-          echo "$output"
-          {
-            echo "output<<COMMIT_CHECK_EOF"
-            echo "$output"
-            echo "COMMIT_CHECK_EOF"
-          } >> "$GITHUB_OUTPUT"
+            | python3 Tools/ci/check_commit_messages.py --markdown > comment.md && rc=0 || rc=$?
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
 
       - name: Post or clear comment
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          rc="${{ steps.check.outputs.exit_code }}"
-          output="${{ steps.check.outputs.output }}"
-
-          if [ "$rc" != "0" ]; then
-            printf '%s\n' \
-              "## Commit Messages" \
-              "" \
-              "Some commit messages in this PR do not meet the project requirements and **must be fixed before merging**." \
-              "" \
-              '```' \
-              "$output" \
-              '```' \
-            | python3 Tools/ci/pr_comment.py --marker commit-msgs --pr "$PR_NUMBER" --result fail
-          elif [ -n "$output" ]; then
-            printf '%s\n' \
-              "## Commit Messages (advisory)" \
-              "" \
-              "This is **not blocking**, but we noticed some commit messages that could be improved." \
-              "" \
-              '```' \
-              "$output" \
-              '```' \
-              "" \
-              "**Why this matters:** every commit that lands on \`main\` becomes permanent project history." \
-              "Clean, prefixed messages (\`subsystem: description\`) make \`git log\`, \`git blame\`," \
-              "and release notes much more useful." \
-              "" \
-              "Squashing review-response and formatting commits into their parent keeps the history focused on meaningful changes." \
-            | python3 Tools/ci/pr_comment.py --marker commit-msgs --pr "$PR_NUMBER" --result warn
+          if [ "${{ steps.check.outputs.exit_code }}" != "0" ]; then
+            python3 Tools/ci/pr_comment.py --marker commit-msgs --pr "$PR_NUMBER" --result fail < comment.md
+          elif [ -s comment.md ]; then
+            python3 Tools/ci/pr_comment.py --marker commit-msgs --pr "$PR_NUMBER" --result warn < comment.md
           else
             python3 Tools/ci/pr_comment.py --marker commit-msgs --pr "$PR_NUMBER" --result pass
           fi
@@ -150,12 +103,10 @@ jobs:
           message=""
           if [ -z "$PR_BODY" ]; then
             message="PR description is empty. Please add a summary of the changes."
-            echo "::warning::PR description is empty."
           else
             cleaned=$(echo "$PR_BODY" | sed 's/<!--.*-->//g' | tr -d '[:space:]')
             if [ -z "$cleaned" ]; then
               message="PR description contains only template comments. Please fill in the details."
-              echo "::warning::PR description contains only template comments."
             fi
           fi
           echo "message=$message" >> "$GITHUB_OUTPUT"
@@ -164,15 +115,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          message="${{ steps.check.outputs.message }}"
-
-          if [ -n "$message" ]; then
+          if [ -n "${{ steps.check.outputs.message }}" ]; then
             printf '%s\n' \
               "## PR Description (advisory)" \
               "" \
               "This is **not blocking**, but your PR description appears to be empty or incomplete." \
               "" \
-              "$message" \
+              "${{ steps.check.outputs.message }}" \
               "" \
               "A good PR description helps reviewers understand what changed and why." \
             | python3 Tools/ci/pr_comment.py --marker pr-body --pr "$PR_NUMBER" --result warn
