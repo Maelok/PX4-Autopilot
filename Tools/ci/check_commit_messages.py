@@ -131,19 +131,24 @@ def main() -> None:
             "\n"
             "Commit message errors must be fixed before merging.\n"
             "\n"
-            "To clean up commits:\n"
-            "  git rebase -i HEAD~N        # mark fixup/bad commits for squash\n"
-            "  git commit --fixup=<sha>     # create a fixup commit, then\n"
-            "  git rebase -i --autosquash   # auto-reorder and squash\n"
+            "Please squash or reword your commits before this PR can be merged.\n"
+            "Each commit on main should have a clear, descriptive message like:\n"
+            "\n"
+            "  ekf2: fix height fusion timeout\n"
+            "  mavlink: add BATTERY_STATUS_V2 support\n"
+            "  boards/px4_fmu-v6x: enable UAVCAN\n"
+            "\n"
+            "To squash everything into one commit:\n"
+            "  git rebase -i HEAD~N        # replace N with the number of commits\n"
             "  git push --force-with-lease  # update the PR branch\n",
-            file=sys.stderr,
         )
         sys.exit(1)
 
     if has_warnings:
         print(
-            "\nWarnings above are advisory. Consider cleaning up before merge.",
-            file=sys.stderr,
+            "\nWarnings above are advisory. Consider squashing cleanup commits\n"
+            "(review responses, formatting fixes) into their parent commits\n"
+            "before merge so that main stays clean.",
         )
 
     sys.exit(0)
