@@ -108,7 +108,10 @@ def check_title(title: str) -> bool:
         f"Bad examples:\n"
         f'  fix stuff\n'
         f'  Update file\n'
-        f'  changes\n',
+        f'  changes\n'
+        f"\n"
+        f"See the contributing guide for details:\n"
+        f"  https://github.com/PX4/PX4-Autopilot/blob/main/CONTRIBUTING.md#commit-message-convention\n",
         file=sys.stderr,
     )
     return False
@@ -176,6 +179,9 @@ def format_markdown(title: str) -> str:
         '"fix timeout", "add support for X", "remove deprecated API").',
         "",
         "</details>",
+        "",
+        "See the full [commit message convention](https://github.com/PX4/PX4-Autopilot/blob/main/CONTRIBUTING.md#commit-message-convention) "
+        "in the contributing guide.",
         "",
         "---",
         "*This comment will be automatically removed once the issue is resolved.*",

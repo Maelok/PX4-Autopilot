@@ -157,14 +157,20 @@ def format_plain(data: list) -> tuple[bool, bool]:
             "\n"
             "To squash everything into one commit:\n"
             "  git rebase -i HEAD~N        # replace N with the number of commits\n"
-            "  git push --force-with-lease  # update the PR branch\n",
+            "  git push --force-with-lease  # update the PR branch\n"
+            "\n"
+            "See the contributing guide for details:\n"
+            "  https://github.com/PX4/PX4-Autopilot/blob/main/CONTRIBUTING.md#commit-message-convention\n",
         )
 
     elif has_warnings:
         print(
             "\nWarnings above are advisory. Consider squashing cleanup commits\n"
             "(review responses, formatting fixes) into their parent commits\n"
-            "before merge so that main stays clean.",
+            "before merge so that main stays clean.\n"
+            "\n"
+            "See the contributing guide for details:\n"
+            "  https://github.com/PX4/PX4-Autopilot/blob/main/CONTRIBUTING.md#commit-message-convention\n",
         )
 
     return has_blocking, has_warnings
@@ -252,6 +258,9 @@ def format_markdown_blocking(data: list) -> str:
         "",
         "</details>",
         "",
+        "See the full [commit message convention](https://github.com/PX4/PX4-Autopilot/blob/main/CONTRIBUTING.md#commit-message-convention) "
+        "in the contributing guide.",
+        "",
         "---",
         "*This comment will be automatically removed once the issues are resolved.*",
     ])
@@ -307,6 +316,9 @@ def format_markdown_advisory(data: list) -> str:
         '"fix timeout", "add support for X", "remove deprecated API").',
         "",
         "</details>",
+        "",
+        "See the full [commit message convention](https://github.com/PX4/PX4-Autopilot/blob/main/CONTRIBUTING.md#commit-message-convention) "
+        "in the contributing guide.",
         "",
         "---",
         "*This comment will be automatically removed once the issues are resolved.*",
