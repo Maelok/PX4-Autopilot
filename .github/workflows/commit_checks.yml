@@ -25,14 +25,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           sparse-checkout: Tools/ci
-          depth: 1
+          fetch-depth: 1
 
       - name: Check PR title
         id: check
         run: |
           python3 Tools/ci/check_pr_title.py "${{ github.event.pull_request.title }}" --markdown > comment.md 2>&1 && rc=0 || rc=$?
-          # Always show plain text in CI log
-          python3 Tools/ci/check_pr_title.py "${{ github.event.pull_request.title }}" 2>&1 || true
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
 
       - name: Post or clear comment
@@ -46,9 +44,18 @@ jobs:
             python3 Tools/ci/pr_comment.py --marker pr-title --pr "$PR_NUMBER" --result pass
           fi
 
-      - name: Fail if title is bad
-        if: steps.check.outputs.exit_code != '0'
-        run: exit 1
+      - name: Result
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.exit_code }}" != "0" ]; then
+            # Show the error in the step that fails so it's visible
+            python3 Tools/ci/check_pr_title.py "${{ github.event.pull_request.title }}" 2>&1 || true
+            echo ""
+            echo "::error::PR title does not follow the required format. See output above."
+            exit 1
+          else
+            echo "PR title is valid."
+          fi
 
   commit-messages:
     name: Commit Messages
@@ -58,7 +65,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           sparse-checkout: Tools/ci
-          depth: 1
+          fetch-depth: 1
 
       - name: Check commit messages
         id: check
@@ -68,9 +75,15 @@ jobs:
           commits=$(gh api \
             "repos/${{ github.repository }}/pulls/${PR_NUMBER}/commits?per_page=100")
           echo "$commits" | python3 Tools/ci/check_commit_messages.py --markdown > comment.md && rc=0 || rc=$?
-          # Always show plain text in CI log
-          echo "$commits" | python3 Tools/ci/check_commit_messages.py || true
+          # Store commits for the result step
+          echo "$commits" > commits.json
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          # Check for warnings (non-empty markdown on exit 0)
+          if [ "$rc" -eq 0 ] && [ -s comment.md ]; then
+            echo "has_warnings=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_warnings=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Post or clear comment
         if: env.IS_FORK == 'false'
@@ -79,15 +92,26 @@ jobs:
         run: |
           if [ "${{ steps.check.outputs.exit_code }}" != "0" ]; then
             python3 Tools/ci/pr_comment.py --marker commit-msgs --pr "$PR_NUMBER" --result fail < comment.md
-          elif [ -s comment.md ]; then
+          elif [ "${{ steps.check.outputs.has_warnings }}" == "true" ]; then
             python3 Tools/ci/pr_comment.py --marker commit-msgs --pr "$PR_NUMBER" --result warn < comment.md
           else
             python3 Tools/ci/pr_comment.py --marker commit-msgs --pr "$PR_NUMBER" --result pass
           fi
 
-      - name: Fail if blocking errors
-        if: steps.check.outputs.exit_code != '0'
-        run: exit 1
+      - name: Result
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.exit_code }}" != "0" ]; then
+            # Show the error in the step that fails so it's visible
+            python3 Tools/ci/check_commit_messages.py < commits.json || true
+            echo ""
+            echo "::error::Commit message errors found. See output above."
+            exit 1
+          elif [ "${{ steps.check.outputs.has_warnings }}" == "true" ]; then
+            python3 Tools/ci/check_commit_messages.py < commits.json || true
+          else
+            echo "All commit messages are valid."
+          fi
 
   pr-body:
     name: PR Description
@@ -98,7 +122,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           sparse-checkout: Tools/ci
-          depth: 1
+          fetch-depth: 1
 
       - name: Check PR body
         id: check
