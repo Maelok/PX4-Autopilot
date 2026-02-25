@@ -161,6 +161,24 @@ def format_markdown(title: str) -> str:
         "```",
         "",
         "</details>",
+        "",
+        "<details>",
+        "<summary>PX4 commit message convention</summary>",
+        "",
+        "PX4 uses the `subsystem: description` format for both PR titles and commit messages. "
+        "The PR title is especially important because it becomes the commit message when a PR is squash-merged.",
+        "",
+        "The **subsystem** is the module, driver, board, or area of PX4 that the change affects. "
+        "Common subsystems include: `ekf2`, `mavlink`, `navigator`, `sensors`, `drivers`, "
+        "`boards/px4_fmu-v6x`, `CI`, `docs`, `simulation`, `multicopter`, `fixedwing`, `vtol`.",
+        "",
+        "The **description** should be a short, imperative summary of the change (e.g. "
+        '"fix timeout", "add support for X", "remove deprecated API").',
+        "",
+        "</details>",
+        "",
+        "---",
+        "*This comment will be automatically removed once the issue is resolved.*",
     ])
 
     return '\n'.join(lines)

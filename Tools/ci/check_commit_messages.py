@@ -220,6 +220,40 @@ def format_markdown_blocking(data: list) -> str:
         "# write a proper message: subsystem: what this commit does",
         "git push --force-with-lease",
         "```",
+        "",
+        "<details>",
+        "<summary>PX4 commit message convention</summary>",
+        "",
+        "PX4 uses the `subsystem: description` format for all commit messages. "
+        "This keeps `git log` and `git blame` readable and makes it easy to "
+        "generate changelogs.",
+        "",
+        "The **subsystem** is the module, driver, board, or area of PX4 that the change affects. "
+        "Common subsystems include: `ekf2`, `mavlink`, `navigator`, `sensors`, `drivers`, "
+        "`boards/px4_fmu-v6x`, `CI`, `docs`, `simulation`, `multicopter`, `fixedwing`, `vtol`.",
+        "",
+        "The **description** should be a short, imperative summary of the change (e.g. "
+        '"fix timeout", "add support for X", "remove deprecated API").',
+        "",
+        "Good commit messages:",
+        "```",
+        "ekf2: fix height fusion timeout",
+        "mavlink: add BATTERY_STATUS_V2 support",
+        "boards/px4_fmu-v6x: enable UAVCAN",
+        "```",
+        "",
+        "Commits to avoid (squash these before merging):",
+        "```",
+        "fix                          # too vague",
+        "apply suggestions from code review  # squash into parent",
+        "do make format               # squash into parent",
+        "WIP: trying something        # not ready for main",
+        "```",
+        "",
+        "</details>",
+        "",
+        "---",
+        "*This comment will be automatically removed once the issues are resolved.*",
     ])
 
     return '\n'.join(lines)
@@ -257,6 +291,25 @@ def format_markdown_advisory(data: list) -> str:
         "",
         "Consider squashing review-response commits (\"address review\", \"apply suggestions\") "
         "and formatting commits (\"make format\") into their parent commit before merge.",
+        "",
+        "<details>",
+        "<summary>PX4 commit message convention</summary>",
+        "",
+        "PX4 uses the `subsystem: description` format for all commit messages. "
+        "This keeps `git log` and `git blame` readable and makes it easy to "
+        "generate changelogs.",
+        "",
+        "The **subsystem** is the module, driver, board, or area of PX4 that the change affects. "
+        "Common subsystems include: `ekf2`, `mavlink`, `navigator`, `sensors`, `drivers`, "
+        "`boards/px4_fmu-v6x`, `CI`, `docs`, `simulation`, `multicopter`, `fixedwing`, `vtol`.",
+        "",
+        "The **description** should be a short, imperative summary of the change (e.g. "
+        '"fix timeout", "add support for X", "remove deprecated API").',
+        "",
+        "</details>",
+        "",
+        "---",
+        "*This comment will be automatically removed once the issues are resolved.*",
     ])
 
     return '\n'.join(lines)
