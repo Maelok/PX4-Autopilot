@@ -30,7 +30,7 @@ jobs:
       - name: Check PR title
         id: check
         run: |
-          python3 Tools/ci/check_pr_title.py "${{ github.event.pull_request.title }}" --markdown > comment.md 2>&1 && rc=0 || rc=$?
+          python3 Tools/ci/check_pr_title.py "${{ github.event.pull_request.title }}" --markdown > comment.md 2>/dev/null && rc=0 || rc=$?
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
 
       - name: Post or clear comment
