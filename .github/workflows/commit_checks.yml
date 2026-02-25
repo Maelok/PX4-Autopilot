@@ -1,0 +1,60 @@
+name: Commit Quality
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    name: PR Title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: Tools/ci
+          depth: 1
+
+      - name: Check PR title
+        run: python3 Tools/ci/check_pr_title.py "${{ github.event.pull_request.title }}"
+
+  commit-messages:
+    name: Commit Messages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: Tools/ci
+          depth: 1
+
+      - name: Check commit messages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits?per_page=100" \
+            | python3 Tools/ci/check_commit_messages.py
+
+  pr-body:
+    name: PR Description
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -z "$PR_BODY" ]; then
+            echo "::warning::PR description is empty. Please add a summary of the changes."
+            exit 0
+          fi
+
+          # Strip HTML comments and whitespace, check if anything remains
+          cleaned=$(echo "$PR_BODY" | sed 's/<!--.*-->//g' | tr -d '[:space:]')
+          if [ -z "$cleaned" ]; then
+            echo "::warning::PR description contains only template comments. Please fill in the details."
+          fi
