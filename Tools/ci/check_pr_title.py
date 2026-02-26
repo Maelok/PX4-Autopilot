@@ -150,6 +150,9 @@ def format_markdown(title: str) -> str:
         ])
 
     lines.extend([
+        "**To fix this:** click the **pencil icon** (:pencil2:) next to the PR title at the top "
+        "of this page, edit it to match the format, and press Enter.",
+        "",
         "<details>",
         "<summary>Examples of good PR titles</summary>",
         "",
@@ -168,12 +171,15 @@ def format_markdown(title: str) -> str:
         "<details>",
         "<summary>PX4 commit message convention</summary>",
         "",
-        "PX4 uses the `subsystem: description` format for both PR titles and commit messages. "
-        "The PR title is especially important because it becomes the commit message when a PR is squash-merged.",
+        "PX4 uses the `subsystem: description` format for both PR titles and commit messages.",
         "",
         "The **subsystem** is the module, driver, board, or area of PX4 that the change affects. "
         "Common subsystems include: `ekf2`, `mavlink`, `navigator`, `sensors`, `drivers`, "
         "`boards/px4_fmu-v6x`, `CI`, `docs`, `simulation`, `multicopter`, `fixedwing`, `vtol`.",
+        "",
+        "**How to find the right subsystem:** look at the directory path of the files you changed. "
+        "For example, changes in `src/modules/ekf2/` use `ekf2`, changes in `src/drivers/imu/` "
+        "use `drivers/imu`, and changes in `.github/workflows/` use `CI`.",
         "",
         "The **description** should be a short, imperative summary of the change (e.g. "
         '"fix timeout", "add support for X", "remove deprecated API").',

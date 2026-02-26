@@ -124,6 +124,7 @@ def format_plain(data: list) -> tuple[bool, bool]:
     """Print plain text output. Returns (has_blocking, has_warnings)."""
     has_blocking = False
     has_warnings = False
+    total_commits = len(data)
 
     for commit in data:
         sha = commit.get('sha', '?')[:10]
@@ -146,6 +147,9 @@ def format_plain(data: list) -> tuple[bool, bool]:
     if has_blocking:
         print(
             "\n"
+            "ERROR = must fix before merging (CI will block the PR)\n"
+            "WARNING = advisory, not blocking, but recommended to fix\n"
+            "\n"
             "Commit message errors must be fixed before merging.\n"
             "\n"
             "Please squash or reword your commits before this PR can be merged.\n"
@@ -155,9 +159,9 @@ def format_plain(data: list) -> tuple[bool, bool]:
             "  mavlink: add BATTERY_STATUS_V2 support\n"
             "  boards/px4_fmu-v6x: enable UAVCAN\n"
             "\n"
-            "To squash everything into one commit:\n"
-            "  git rebase -i HEAD~N        # replace N with the number of commits\n"
-            "  git push --force-with-lease  # update the PR branch\n"
+            f"To squash everything into one commit:\n"
+            f"  git rebase -i HEAD~{total_commits}\n"
+            "  git push --force-with-lease  # safe for PR branches\n"
             "\n"
             "See the contributing guide for details:\n"
             "  https://github.com/PX4/PX4-Autopilot/blob/main/CONTRIBUTING.md#commit-message-convention\n",
@@ -165,7 +169,10 @@ def format_plain(data: list) -> tuple[bool, bool]:
 
     elif has_warnings:
         print(
-            "\nWarnings above are advisory. Consider squashing cleanup commits\n"
+            "\n"
+            "WARNING = advisory, not blocking, but recommended to fix\n"
+            "\n"
+            "Warnings above are advisory. Consider squashing cleanup commits\n"
             "(review responses, formatting fixes) into their parent commits\n"
             "before merge so that main stays clean.\n"
             "\n"
@@ -178,18 +185,11 @@ def format_plain(data: list) -> tuple[bool, bool]:
 
 def format_markdown_blocking(data: list) -> str:
     """Format a blocking error markdown comment."""
-    lines = [
-        "## Commit Messages",
-        "",
-        "Some commits in this PR have messages that **must be fixed before merging**.",
-        "",
-        "Every commit that lands on `main` becomes permanent project history. "
-        "Each commit message should use the `subsystem: description` format and "
-        "clearly describe what changed.",
-        "",
-        "| Commit | Message | Issue | Suggested fix |",
-        "|--------|---------|-------|---------------|",
-    ]
+    total_commits = len(data)
+
+    # Group commits by error category to avoid repeating identical rows
+    error_groups: dict[str, list[str]] = {}  # error_msg -> [sha, ...]
+    unique_commits: list[tuple[str, str, list[str], str]] = []  # (sha, msg, errors, suggestion)
 
     for commit in data:
         sha = commit.get('sha', '?')[:10]
@@ -200,33 +200,125 @@ def format_markdown_blocking(data: list) -> str:
         if not errors:
             continue
 
-        issues = '; '.join(errors)
         suggestion = suggest_commit(message) or ''
-        # Escape pipes in the message for markdown table
-        safe_msg = first_line.replace('|', '\\|')
-        lines.append(f"| `{sha}` | {safe_msg} | {issues} | {suggestion} |")
+        unique_commits.append((sha, first_line, errors, suggestion))
+
+        for err in errors:
+            error_groups.setdefault(err, []).append(sha)
+
+    lines = [
+        "## Commit Messages",
+        "",
+        "Some commits in this PR have messages that **must be fixed before merging**.",
+        "",
+        "Every commit that lands on `main` becomes permanent project history. "
+        "Each commit message should use the `subsystem: description` format and "
+        "clearly describe what changed.",
+        "",
+    ]
+
+    # If many commits share the same error, show a grouped summary
+    # Otherwise show individual rows
+    has_large_group = any(len(shas) > 3 for shas in error_groups.values())
+
+    if has_large_group:
+        lines.extend([
+            "**Issues found:**",
+            "",
+        ])
+        for err_msg, shas in error_groups.items():
+            if len(shas) > 3:
+                lines.append(f"- **{len(shas)} commits**: {err_msg} "
+                             f"(`{shas[0]}`, `{shas[1]}`, ... `{shas[-1]}`)")
+            else:
+                sha_list = ', '.join(f'`{s}`' for s in shas)
+                lines.append(f"- {err_msg}: {sha_list}")
+
+        # Show a few example commits if not all identical
+        distinct_messages = {msg for _, msg, _, _ in unique_commits}
+        if len(distinct_messages) <= 5:
+            lines.extend(["", "**Affected commits:**", ""])
+            for sha, msg, errors, suggestion in unique_commits:
+                safe_msg = msg.replace('|', '\\|')
+                lines.append(f"- `{sha}` {safe_msg}")
+    else:
+        lines.extend([
+            "| Commit | Message | Issue | Suggested fix |",
+            "|--------|---------|-------|---------------|",
+        ])
+        for sha, msg, errors, suggestion in unique_commits:
+            issues = '; '.join(errors)
+            safe_msg = msg.replace('|', '\\|')
+            lines.append(f"| `{sha}` | {safe_msg} | {issues} | {suggestion} |")
 
     lines.extend([
         "",
         "**How to fix:**",
         "",
-        "If you have a single meaningful commit buried under fixup/review commits, "
+        "\"Squashing\" means combining multiple commits into one. "
+        "If you have a single meaningful commit buried under cleanup or review commits, "
         "squash them all into one:",
         "```bash",
-        "git rebase -i HEAD~N   # replace N with the number of commits in this PR",
-        "# mark all commits except the first as 'squash' or 'fixup'",
-        "# reword the remaining commit to follow the format",
-        "git push --force-with-lease",
+        f"git rebase -i HEAD~{total_commits}",
         "```",
         "",
-        "If each commit is a separate logical change, reword the bad ones:",
+        "This opens an editor that looks like this:",
+        "```",
+    ])
+
+    # Show a realistic rebase editor example using actual commits
+    example_commits = []
+    for commit in data[:4]:
+        sha = commit.get('sha', '?')[:7]
+        msg = commit.get('commit', {}).get('message', '').split('\n', 1)[0].strip()[:50]
+        example_commits.append((sha, msg))
+
+    if example_commits:
+        lines.append(f"pick {example_commits[0][0]} {example_commits[0][1]}")
+        for sha, msg in example_commits[1:]:
+            lines.append(f"pick {sha} {msg}")
+        if total_commits > 4:
+            lines.append(f"# ... and {total_commits - 4} more commits")
+
+    lines.extend([
+        "```",
+        "",
+        "Change `pick` to `squash` (or `s`) for all commits except the first, "
+        "then save and close. Git will let you write a new combined message.",
+        "",
+        "If each commit is a separate logical change, reword the bad ones instead:",
         "```bash",
-        "git rebase -i HEAD~N   # replace N with the number of commits",
-        "# mark the bad commits as 'reword'",
-        "# write a proper message: subsystem: what this commit does",
-        "git push --force-with-lease",
+        f"git rebase -i HEAD~{total_commits}",
+        "# change 'pick' to 'reword' (or 'r') for the commits to fix",
+        "# git will prompt you to write a new message for each one",
         "```",
         "",
+        "Then push your changes:",
+        "```bash",
+        "git push --force-with-lease",
+        "```",
+        "(`--force-with-lease` is safe on PR branches. It only updates the remote "
+        "if nobody else has pushed since your last fetch.)",
+        "",
+    ])
+
+    lines.extend(_convention_section())
+
+    lines.extend([
+        "",
+        "See the full [commit message convention](https://github.com/PX4/PX4-Autopilot/blob/main/CONTRIBUTING.md#commit-message-convention) "
+        "in the contributing guide.",
+        "",
+        "---",
+        "*This comment will be automatically removed once the issues are resolved.*",
+    ])
+
+    return '\n'.join(lines)
+
+
+def _convention_section() -> list[str]:
+    """Shared PX4 commit convention details for markdown comments."""
+    return [
         "<details>",
         "<summary>PX4 commit message convention</summary>",
         "",
@@ -237,6 +329,10 @@ def format_markdown_blocking(data: list) -> str:
         "The **subsystem** is the module, driver, board, or area of PX4 that the change affects. "
         "Common subsystems include: `ekf2`, `mavlink`, `navigator`, `sensors`, `drivers`, "
         "`boards/px4_fmu-v6x`, `CI`, `docs`, `simulation`, `multicopter`, `fixedwing`, `vtol`.",
+        "",
+        "**How to find the right subsystem:** look at the directory path of the files you changed. "
+        "For example, changes in `src/modules/ekf2/` use `ekf2`, changes in `src/drivers/imu/` "
+        "use `drivers/imu`, and changes in `.github/workflows/` use `CI`.",
         "",
         "The **description** should be a short, imperative summary of the change (e.g. "
         '"fix timeout", "add support for X", "remove deprecated API").',
@@ -257,19 +353,12 @@ def format_markdown_blocking(data: list) -> str:
         "```",
         "",
         "</details>",
-        "",
-        "See the full [commit message convention](https://github.com/PX4/PX4-Autopilot/blob/main/CONTRIBUTING.md#commit-message-convention) "
-        "in the contributing guide.",
-        "",
-        "---",
-        "*This comment will be automatically removed once the issues are resolved.*",
-    ])
-
-    return '\n'.join(lines)
+    ]
 
 
 def format_markdown_advisory(data: list) -> str:
     """Format an advisory warning markdown comment."""
+    total_commits = len(data)
     lines = [
         "## Commit Messages (advisory)",
         "",
@@ -298,24 +387,20 @@ def format_markdown_advisory(data: list) -> str:
         "Clean, prefixed messages (`subsystem: description`) make `git log`, "
         "`git blame`, and release notes much more useful.",
         "",
-        "Consider squashing review-response commits (\"address review\", \"apply suggestions\") "
-        "and formatting commits (\"make format\") into their parent commit before merge.",
+        "Consider squashing (combining) review-response commits "
+        "(\"address review\", \"apply suggestions\") "
+        "and formatting commits (\"make format\") into their parent commit before merge:",
+        "```bash",
+        f"git rebase -i HEAD~{total_commits}",
+        "# change 'pick' to 'squash' (or 's') for the commits to combine",
+        "git push --force-with-lease  # safe for PR branches",
+        "```",
         "",
-        "<details>",
-        "<summary>PX4 commit message convention</summary>",
-        "",
-        "PX4 uses the `subsystem: description` format for all commit messages. "
-        "This keeps `git log` and `git blame` readable and makes it easy to "
-        "generate changelogs.",
-        "",
-        "The **subsystem** is the module, driver, board, or area of PX4 that the change affects. "
-        "Common subsystems include: `ekf2`, `mavlink`, `navigator`, `sensors`, `drivers`, "
-        "`boards/px4_fmu-v6x`, `CI`, `docs`, `simulation`, `multicopter`, `fixedwing`, `vtol`.",
-        "",
-        "The **description** should be a short, imperative summary of the change (e.g. "
-        '"fix timeout", "add support for X", "remove deprecated API").',
-        "",
-        "</details>",
+    ])
+
+    lines.extend(_convention_section())
+
+    lines.extend([
         "",
         "See the full [commit message convention](https://github.com/PX4/PX4-Autopilot/blob/main/CONTRIBUTING.md#commit-message-convention) "
         "in the contributing guide.",
